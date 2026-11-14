@@ -140,9 +140,3 @@ grocery-receipt-bot/
 └── docs/
     └── ARCHITECTURE.md  # Detailed technical design
 ```
-
----
-
-## License
-
-MIT
