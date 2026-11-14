@@ -1,7 +1,10 @@
+import asyncio
+import html
 import io
 import logging
 import os
 
+from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import (
     Application,
@@ -11,6 +14,9 @@ from telegram.ext import (
     filters,
 )
 
+# Must run before the imports below, which read settings from the environment.
+load_dotenv()
+
 from receipt_parser import parse_receipt
 from sheets_writer import append_receipt
 
@@ -18,34 +24,52 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO,
 )
+# httpx logs full request URLs at INFO, and Telegram URLs contain the bot token.
+logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
+
+# Optional comma-separated chat IDs allowed to use the bot. Empty = anyone.
+ALLOWED_CHAT_IDS = {
+    int(x) for x in os.environ.get("ALLOWED_CHAT_IDS", "").split(",") if x.strip()
+}
+
+
+def _allowed(update: Update) -> bool:
+    return not ALLOWED_CHAT_IDS or update.effective_chat.id in ALLOWED_CHAT_IDS
+
+
+def _money(value) -> str:
+    return f"${value:.2f}" if isinstance(value, (int, float)) else ""
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         "Hi! Send me a photo of a grocery receipt and I'll log every item to your spreadsheet.\n\n"
-        "Just snap or forward a clear receipt photo to get started."
+        f"Your chat ID is {update.effective_chat.id}."
     )
 
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _allowed(update):
+        await update.message.reply_text("Sorry, this bot is private.")
+        return
+
     msg = await update.message.reply_text("Got it! Analysing your receipt...")
 
-    # Download the highest-resolution version of the photo
     photo = update.message.photo[-1]
     tg_file = await context.bot.get_file(photo.file_id)
     buf = io.BytesIO()
     await tg_file.download_to_memory(buf)
-    image_bytes = buf.getvalue()
 
-    # Parse with Gemini vision
     try:
-        receipt = await parse_receipt(image_bytes)
-    except Exception as exc:
-        logger.error("Receipt parsing failed: %s", exc)
-        await msg.edit_text("Sorry, I couldn't analyse that receipt. Try a clearer photo.")
+        receipt = await parse_receipt(buf.getvalue())
+    except Exception:
+        logger.exception("Receipt parsing failed")
+        await msg.edit_text(
+            "Sorry, I couldn't analyse that receipt right now. Please try again in a minute."
+        )
         return
 
     if not receipt or not receipt.get("items"):
@@ -55,39 +79,35 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         )
         return
 
-    # Save to Google Sheets
     try:
-        rows_saved = append_receipt(receipt)
-    except Exception as exc:
-        logger.error("Sheets write failed: %s", exc)
-        await msg.edit_text("Parsed the receipt but couldn't save to Google Sheets. Check your service account permissions.")
+        rows_saved = await asyncio.to_thread(append_receipt, receipt)
+    except Exception:
+        logger.exception("Sheets write failed")
+        await msg.edit_text(
+            "I read the receipt but couldn't save it to Google Sheets. Nothing was added."
+        )
         return
 
-    # Build confirmation message
-    store = receipt.get("store_name") or "Unknown Store"
-    date = receipt.get("receipt_date") or "unknown date"
-    items = receipt.get("items", [])
-    total = receipt.get("total")
+    store = html.escape(receipt.get("store_name") or "Unknown Store")
+    date = html.escape(receipt.get("receipt_date") or "unknown date")
+    items = receipt["items"]
 
-    lines = [f"✅ Saved {rows_saved} items from *{store}* ({date})\n"]
+    lines = [f"✅ Saved {rows_saved} items from <b>{store}</b> ({date})\n"]
     for item in items[:8]:
-        name = item.get("name", "?")
-        qty = item.get("quantity", 1)
-        item_total = item.get("total")
-        price_str = f"${item_total:.2f}" if item_total is not None else ""
-        lines.append(f"• {name}  ×{qty}  {price_str}")
+        name = html.escape(str(item.get("name") or "?"))
+        qty = item.get("quantity") or 1
+        lines.append(f"• {name}  ×{qty}  {_money(item.get('total'))}")
     if len(items) > 8:
-        lines.append(f"_...and {len(items) - 8} more items_")
-    if total is not None:
-        lines.append(f"\n*Receipt total: ${total:.2f}*")
+        lines.append(f"<i>...and {len(items) - 8} more items</i>")
+    if isinstance(receipt.get("total"), (int, float)):
+        lines.append(f"\n<b>Receipt total: {_money(receipt['total'])}</b>")
 
-    await msg.edit_text("\n".join(lines), parse_mode="Markdown")
+    await msg.edit_text("\n".join(lines), parse_mode="HTML")
 
 
-async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def handle_other(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
-        "Please send a *photo* of your grocery receipt so I can log it.",
-        parse_mode="Markdown",
+        "Please send a photo of your grocery receipt so I can log it."
     )
 
 
@@ -95,9 +115,9 @@ def main() -> None:
     app = Application.builder().token(TELEGRAM_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+    app.add_handler(MessageHandler(~filters.COMMAND, handle_other))
     logger.info("Bot started, polling for updates...")
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
+    app.run_polling(allowed_updates=["message"])
 
 
 if __name__ == "__main__":

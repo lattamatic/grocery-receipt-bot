@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import json
 import os
@@ -5,16 +6,15 @@ import os
 import httpx
 
 GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash")
 GEMINI_URL = (
     "https://generativelanguage.googleapis.com/v1beta/models/"
-    "gemini-1.5-flash:generateContent?key=" + GEMINI_API_KEY
-    if GEMINI_API_KEY
-    else ""
+    f"{GEMINI_MODEL}:generateContent"
 )
 
 _PROMPT = """You are a receipt OCR assistant. Carefully read this grocery receipt image.
 
-Return ONLY a single valid JSON object — no markdown, no extra text — in this exact structure:
+Return a single JSON object in this exact structure:
 {
   "store_name": "string or null",
   "receipt_date": "YYYY-MM-DD or null",
@@ -36,7 +36,7 @@ Rules:
 - If a value is not visible or unclear, use null.
 - Quantities default to 1 if not shown.
 - All monetary values must be numbers (not strings).
-- Do not include any text outside the JSON object."""
+- If the image is not a receipt, return an empty "items" list."""
 
 
 def _build_payload(image_bytes: bytes) -> dict:
@@ -50,33 +50,44 @@ def _build_payload(image_bytes: bytes) -> dict:
                 ]
             }
         ],
-        "generationConfig": {"temperature": 0.1, "maxOutputTokens": 2048},
+        "generationConfig": {
+            "temperature": 0.1,
+            "maxOutputTokens": 8192,
+            "responseMimeType": "application/json",
+        },
     }
 
 
 def _extract_json(raw: str) -> dict:
     text = raw.strip()
-    # Strip markdown code fences if present
     if text.startswith("```"):
-        parts = text.split("```")
-        # parts[1] is the content inside the fences
-        text = parts[1]
+        text = text.split("```")[1]
         if text.startswith("json"):
             text = text[4:]
     return json.loads(text.strip())
 
 
 async def parse_receipt(image_bytes: bytes) -> dict:
-    url = (
-        "https://generativelanguage.googleapis.com/v1beta/models/"
-        f"gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
-    )
+    # Key goes in a header so it never appears in logged request URLs.
     payload = _build_payload(image_bytes)
+    async with httpx.AsyncClient(timeout=90) as client:
+        for attempt in range(3):
+            try:
+                response = await client.post(
+                    GEMINI_URL,
+                    headers={"x-goog-api-key": GEMINI_API_KEY},
+                    json=payload,
+                )
+                # The free tier returns 429/503 under load; those are worth retrying.
+                if response.status_code in (429, 500, 503) and attempt < 2:
+                    await asyncio.sleep(3 * (attempt + 1))
+                    continue
+                response.raise_for_status()
+                break
+            except httpx.TimeoutException:
+                if attempt == 2:
+                    raise
 
-    async with httpx.AsyncClient(timeout=60) as client:
-        response = await client.post(url, json=payload)
-        response.raise_for_status()
-
-    data = response.json()
-    raw_text = data["candidates"][0]["content"]["parts"][0]["text"]
+    parts = response.json()["candidates"][0]["content"]["parts"]
+    raw_text = "".join(p.get("text", "") for p in parts if not p.get("thought"))
     return _extract_json(raw_text)

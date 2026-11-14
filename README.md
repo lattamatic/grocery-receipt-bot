@@ -17,7 +17,7 @@ Telegram Bot (Python)
     │
     │  image bytes
     ▼
-Google Gemini 1.5 Flash  ←── free vision AI
+Google Gemini Flash  ←── free vision AI
     │
     │  structured JSON
     ▼
@@ -52,7 +52,7 @@ The bot only **appends** rows — it never deletes or overwrites existing data.
 | Layer | Technology | Cost |
 |---|---|---|
 | Trigger | Telegram Bot API | Free |
-| AI Vision | Google Gemini 1.5 Flash | Free (1,500 req/day) |
+| AI Vision | Google Gemini Flash | Free tier |
 | Storage | Google Sheets | Free |
 | Hosting | Railway | Your existing plan |
 
@@ -99,6 +99,8 @@ python bot.py
 | `GEMINI_API_KEY` | [Google AI Studio](https://aistudio.google.com) → Get API key |
 | `SPREADSHEET_ID` | The long ID in your Google Sheet URL |
 | `SHEET_NAME` | Tab name in the spreadsheet (default: `Sheet1`) |
+| `GEMINI_MODEL` | Optional. Gemini model ID (default: `gemini-3.5-flash`) |
+| `ALLOWED_CHAT_IDS` | Optional. Comma-separated Telegram chat IDs allowed to use the bot; empty means anyone. `/start` shows your chat ID |
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | Full JSON from your Google Cloud service account key (see below) |
 
 ### Google Service Account setup
