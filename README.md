@@ -17,7 +17,7 @@ Telegram Bot (Python)
     │
     │  image bytes
     ▼
-Google Gemini 1.5 Flash  ←── free vision AI
+Google Gemini Flash  ←── free vision AI
     │
     │  structured JSON
     ▼
@@ -33,15 +33,17 @@ Confirmation message back to you
 
 | Column | Description |
 |---|---|
-| Processed At | UTC timestamp when the bot ran |
-| Store Name | Extracted from receipt |
-| Receipt Date | Date on the receipt (YYYY-MM-DD) |
-| Item Name | Product description |
+| Receipt ID | `<Telegram chat ID>-<message ID>`, shared by all rows of one receipt |
+| Purchase Date | Date on the receipt (YYYY-MM-DD) |
+| Store | Store name from the receipt |
+| Item | Product description as printed |
+| Category | Groceries, Personal care, Household or Other |
 | Quantity | Number of units |
 | Unit Price | Price per unit |
-| Item Total | Line total |
+| Total Price | Line total (discount lines are negative) |
+| Currency | ISO code read from the receipt, falling back to `DEFAULT_CURRENCY` |
 | Receipt Total | Full receipt total |
-| Tax | Tax amount |
+| Logged At | UTC timestamp when the bot saved the row |
 
 The bot only **appends** rows — it never deletes or overwrites existing data.
 
@@ -52,7 +54,7 @@ The bot only **appends** rows — it never deletes or overwrites existing data.
 | Layer | Technology | Cost |
 |---|---|---|
 | Trigger | Telegram Bot API | Free |
-| AI Vision | Google Gemini 1.5 Flash | Free (1,500 req/day) |
+| AI Vision | Google Gemini Flash | Free tier |
 | Storage | Google Sheets | Free |
 | Hosting | Railway | Your existing plan |
 
@@ -99,6 +101,9 @@ python bot.py
 | `GEMINI_API_KEY` | [Google AI Studio](https://aistudio.google.com) → Get API key |
 | `SPREADSHEET_ID` | The long ID in your Google Sheet URL |
 | `SHEET_NAME` | Tab name in the spreadsheet (default: `Sheet1`) |
+| `DEFAULT_CURRENCY` | Optional. Currency used when the receipt does not show one (default: `EUR`) |
+| `GEMINI_MODELS` | Optional. Comma-separated Gemini model IDs tried in order (default: `gemini-3.5-flash-lite,gemini-3.5-flash`) |
+| `ALLOWED_CHAT_IDS` | Optional. Comma-separated Telegram chat IDs allowed to use the bot; empty means anyone. `/start` shows your chat ID |
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | Full JSON from your Google Cloud service account key (see below) |
 
 ### Google Service Account setup
@@ -135,9 +140,3 @@ grocery-receipt-bot/
 └── docs/
     └── ARCHITECTURE.md  # Detailed technical design
 ```
-
----
-
-## License
-
-MIT
