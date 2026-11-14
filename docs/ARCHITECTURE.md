@@ -43,7 +43,7 @@ grocery-receipt-bot is a stateless Telegram bot. Each incoming photo triggers a 
 
 | Failure | Bot response |
 |---|---|
-| Gemini API error (after up to 3 attempts on 429/5xx/timeout) | "couldn't analyse that receipt" message |
+| Gemini API error (after two passes over the model list) | "couldn't analyse that receipt" message |
 | Gemini returns no items | "couldn't find any line items" message |
 | Sheets API error (auth, quota) | "parsed but couldn't save" message |
 | No photo in message | "please send a photo" nudge |
@@ -70,7 +70,7 @@ The JSON is parsed with a defensive `_extract_json` helper that strips accidenta
 
 - Uses a **service account** (not OAuth) so the bot can run headlessly with no user interaction.
 - The service account JSON is stored as a single environment variable (`GOOGLE_SERVICE_ACCOUNT_JSON`) — never as a file in the repo.
-- `_ensure_headers` checks whether the sheet is empty and inserts column headers only once. If the sheet already has data, headers are skipped and rows append immediately below the last occupied row.
+- If cell A1 is empty the header row is inserted once. Otherwise rows append immediately below the last occupied row, anchored at column A. Every row of a receipt shares a Receipt ID of the form `<chat id>-<message id>`.
 - All writes use `value_input_option="USER_ENTERED"` so Google Sheets auto-formats numbers and dates.
 
 ---
