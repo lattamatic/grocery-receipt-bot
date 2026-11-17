@@ -80,6 +80,21 @@ def _money(value, currency: str) -> str:
     return f"{value:.2f} {currency}" if isinstance(value, (int, float)) else ""
 
 
+def check_total(receipt: dict) -> tuple[str, float]:
+    """Compare line items with the printed total: 'ok', 'tax_on_top' or 'mismatch'."""
+    items_sum = sum(
+        i["total"] for i in receipt["items"] if isinstance(i.get("total"), (int, float))
+    )
+    total = receipt["total"]
+    tax = receipt.get("tax")
+    if abs(items_sum - total) <= 0.05:
+        return "ok", items_sum
+    # Some receipts list prices before tax and add the tax at the bottom.
+    if isinstance(tax, (int, float)) and tax > 0 and abs(items_sum + tax - total) <= 0.05:
+        return "tax_on_top", items_sum
+    return "mismatch", items_sum
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         "Hi! Send me a photo of a grocery receipt and I'll log every item to your spreadsheet.\n\n"
@@ -139,8 +154,10 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         lines.append(f"<i>...and {len(items) - 8} more items</i>")
     if isinstance(receipt.get("total"), (int, float)):
         lines.append(f"\n<b>Receipt total: {_money(receipt['total'], currency)}</b>")
-        items_sum = sum(i["total"] for i in items if isinstance(i.get("total"), (int, float)))
-        if abs(items_sum - receipt["total"]) > 0.05:
+        status, items_sum = check_total(receipt)
+        if status == "tax_on_top":
+            lines.append(f"<i>Includes {_money(receipt['tax'], currency)} tax on top of the items.</i>")
+        elif status == "mismatch":
             lines.append(
                 f"⚠️ Items add up to {_money(items_sum, currency)}, which differs from the "
                 "receipt total. Please check the rows in the sheet."
