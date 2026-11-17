@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import (
     Application,
+    ApplicationHandlerStop,
     CommandHandler,
     ContextTypes,
     MessageHandler,
@@ -36,8 +37,43 @@ ALLOWED_CHAT_IDS = {
 }
 
 
-def _allowed(update: Update) -> bool:
-    return not ALLOWED_CHAT_IDS or update.effective_chat.id in ALLOWED_CHAT_IDS
+# Optional chat ID that is told when a chat outside the allowlist messages the bot.
+ADMIN_CHAT_ID = int(os.environ["ADMIN_CHAT_ID"]) if os.environ.get("ADMIN_CHAT_ID") else None
+
+_alerted_chats: set[int] = set()
+
+
+async def gate(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Runs before every handler; blocks chats outside the allowlist."""
+    chat = update.effective_chat
+    if not ALLOWED_CHAT_IDS or chat.id in ALLOWED_CHAT_IDS:
+        return
+
+    logger.warning("Blocked message from chat %s", chat.id)
+    await update.message.reply_text(
+        f"Sorry, this bot is private. Your chat ID is {chat.id}."
+    )
+
+    # One alert per chat per run, so a persistent stranger cannot flood the owner.
+    if ADMIN_CHAT_ID and chat.id not in _alerted_chats:
+        _alerted_chats.add(chat.id)
+        user = update.effective_user
+        who = html.escape(user.full_name) if user else "Unknown"
+        if user and user.username:
+            who += f" (@{html.escape(user.username)})"
+        kind = "a photo" if update.message.photo or update.message.document else "a message"
+        try:
+            await context.bot.send_message(
+                ADMIN_CHAT_ID,
+                f"🔒 Someone outside the allowlist sent {kind} to the receipt bot.\n"
+                f"Name: {who}\nChat ID: <code>{chat.id}</code>\n\n"
+                "Nothing was saved. To allow them, add this ID to ALLOWED_CHAT_IDS.",
+                parse_mode="HTML",
+            )
+        except Exception:
+            logger.exception("Could not alert the admin chat")
+
+    raise ApplicationHandlerStop
 
 
 def _money(value, currency: str) -> str:
@@ -52,10 +88,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not _allowed(update):
-        await update.message.reply_text("Sorry, this bot is private.")
-        return
-
     msg = await update.message.reply_text("Got it! Analysing your receipt...")
 
     # A photo sent "as a file" arrives as a document rather than a photo.
@@ -126,6 +158,7 @@ async def handle_other(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 def main() -> None:
     app = Application.builder().token(TELEGRAM_TOKEN).build()
+    app.add_handler(MessageHandler(filters.ALL, gate), group=-1)
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.PHOTO | filters.Document.IMAGE, handle_photo))
     app.add_handler(MessageHandler(~filters.COMMAND, handle_other))

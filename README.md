@@ -104,6 +104,7 @@ python bot.py
 | `DEFAULT_CURRENCY` | Optional. Currency used when the receipt does not show one (default: `EUR`) |
 | `GEMINI_MODELS` | Optional. Comma-separated Gemini model IDs tried in order (default: `gemini-3.5-flash-lite,gemini-3.5-flash`) |
 | `ALLOWED_CHAT_IDS` | Optional. Comma-separated Telegram chat IDs allowed to use the bot; empty means anyone. `/start` shows your chat ID |
+| `ADMIN_CHAT_ID` | Optional. Chat ID that gets a Telegram alert when a chat outside the allowlist messages the bot |
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | Full JSON from your Google Cloud service account key (see below) |
 
 ### Google Service Account setup
