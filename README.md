@@ -4,6 +4,20 @@ A Telegram bot that reads grocery receipt photos and logs every line item to Goo
 
 Send a receipt photo → the bot extracts store name, date, items, prices → appends rows to your spreadsheet → confirms with a summary.
 
+## Why this exists
+
+Our household tracks grocery spending at item level, and nobody wants to type receipts into a spreadsheet. A no-code n8n workflow proved the idea, then its free trial ended. This is the rebuild: same one-gesture experience in Telegram, same spreadsheet, no new subscription.
+
+- **Product case study:** [docs/PRODUCT.md](docs/PRODUCT.md) covers the problem, users, decisions and trade-offs, what testing showed, and what comes next.
+- **Technical design:** [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+
+## What the user sees
+
+1. Send a photo of a receipt to the bot.
+2. The bot replies "Got it! Analysing your receipt..." and, a few seconds later, a summary of the items saved and the receipt total.
+3. If the items do not add up to the printed total, the reply includes a warning so the rows can be checked.
+4. Any message without a photo gets a nudge to send one.
+
 ---
 
 ## How it works
@@ -56,7 +70,7 @@ The bot only **appends** rows — it never deletes or overwrites existing data.
 | Trigger | Telegram Bot API | Free |
 | AI Vision | Google Gemini Flash | Free tier |
 | Storage | Google Sheets | Free |
-| Hosting | Railway | Your existing plan |
+| Hosting | Railway (one worker process) | Existing plan |
 
 ---
 
@@ -139,5 +153,6 @@ grocery-receipt-bot/
 ├── .env.example         # Template for environment variables
 ├── .gitignore
 └── docs/
-    └── ARCHITECTURE.md  # Detailed technical design
+    ├── ARCHITECTURE.md  # Detailed technical design
+    └── PRODUCT.md       # Product case study
 ```
